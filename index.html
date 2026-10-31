@@ -368,27 +368,28 @@
     // Viewport Pan / Zoom State
     let scale = 1;
     let panX = 0;
-    let panY = 0;
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
+        bar.style.width = '80%'; text.textContent = '80% (寫入 IndexedDB 快取與雲端同步)';
+        await saveMapToIndexedDB(mapId, dataUrl);
 
-    // Photos state for Pin creation
-    let pinPhotosBase64 = [];
-
-    // App ID & Firebase Initialization
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    
-    // IndexedDB setup for HD Map Blob Storage
-    function initIndexedDB() {
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open('VenueInspectionDB', 1);
-        request.onupgradeneeded = (e) => {
-          const idb = e.target.result;
-          if (!idb.objectStoreNames.contains('mapBlobs')) {
-            idb.createObjectStore('mapBlobs', { keyPath: 'id' });
-          }
+        // 自動生成輕量地圖縮圖/壓縮圖以供跨裝置雲端廣播
+        const newMapObj = {
+          id: mapId,
+          name: mapName,
+          imageData: dataUrl, // 雲端同步圖資 Base64 數據
+          createdAt: new Date().toISOString()
         };
+
+        if (db) {
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'maps', mapId), newMapObj);
+        } else {
+          maps.push(newMapObj);
+        }
+
+        bar.style.width = '100%'; text.textContent = '100%';
+        closeModal('modalUpload');
+        selectMap(mapId);
+        showToast(`地圖「${mapName}」上傳成功並完成跨裝置同步預備！`, 'success');
+      };
         request.onsuccess = (e) => {
           dbIndexedDB = e.target.result;
           resolve(dbIndexedDB);
@@ -513,7 +514,16 @@
       renderMapTabs();
 
       const imgEl = document.getElementById('mapImage');
-      const dataUrl = await getMapFromIndexedDB(mapId);
+      let dataUrl = await getMapFromIndexedDB(mapId);
+
+      // 如果本地 IndexedDB 沒有這張圖資（代表是其他同事裝置），自動從雲端接收到的 imageData 進行寫入與渲染
+      if (!dataUrl) {
+        const targetMap = maps.find(m => m.id === mapId);
+        if (targetMap && targetMap.imageData) {
+          dataUrl = targetMap.imageData;
+          await saveMapToIndexedDB(mapId, dataUrl); // 快取到該裝置本地
+        }
+      }
 
       if (dataUrl) {
         imgEl.src = dataUrl;
